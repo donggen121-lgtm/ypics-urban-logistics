@@ -1,0 +1,28 @@
+{
+ "args": {
+  "solver": "highs",
+  "T": 20,
+  "tt": "tt25_h11",
+  "far": 1.0,
+  "dens": 4.0,
+  "K": 30,
+  "penalty_min": 45,
+  "fresh_mult": 1.5,
+  "fresh": 1,
+  "fixed": 0,
+  "nnew": -1,
+  "only": "all",
+  "general": 0.0,
+  "gap": 0.0001,
+  "tlim": 400.0,
+  "tag": "fresh_only"
+ },
+ "VSS_억": 0.0,
+ "saving_vs_statusquo_억": 102.01591820691621,
+ "objs_억": {
+  "statusquo": 248.93108567307533,
+  "EV": 146.91516746615912,
+  "RP": 148.1890449737067,
+  "EEV": 148.1890449737067
+ }
+}
