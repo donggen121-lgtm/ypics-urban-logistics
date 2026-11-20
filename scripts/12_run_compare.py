@@ -33,7 +33,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--solver", default="highs", choices=["highs", "gurobi"])
 ap.add_argument("--gap", type=float, default=0.001)
 ap.add_argument("--tlim", type=float, default=600)
-a = ap.parse_args()
+a = ap.parse_known_args()[0]   # 15_cross_eval.py 에서 import 할 때 다른 인자 무시
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASE = PROC
@@ -78,7 +78,8 @@ def make_F(types):
     return F
 
 
-def solve(F, statusquo=False, label=""):
+def solve(F, statusquo=False, label="", fixed_new=None):
+    """fixed_new: 신규 센터 cand_id 목록을 주면 개설(y)을 그 목록으로 고정하고 배정·냉장만 푼다 (교차평가용)."""
     nI = len(F)
     T = TA.loc[F.cand_id, Z.행정동코드.astype(str)].values
     ai, aj = [], []
@@ -101,6 +102,9 @@ def solve(F, statusquo=False, label=""):
     lb[oz:ox][E] = F.cold0.values[E]; ub[oz:ox][E] = F.cold0.values[E]
     if statusquo:
         ub[oy:oz][~E] = 0; ub[oz:ox][~E] = 0
+    if fixed_new is not None:
+        op = F.cand_id.isin(list(fixed_new)).values & ~E
+        lb[oy:oz][~E] = op[~E]; ub[oy:oz][~E] = op[~E]; ub[oz:ox][~E] = op[~E]
     R, Cc, V, lo, hi = [], [], [], [], []
     r = 0
     def add(rr, cc, vv, l, h):
@@ -115,7 +119,13 @@ def solve(F, statusquo=False, label=""):
     add(np.r_[I, I], np.r_[oz + I, oy + I], np.r_[np.ones(nI), -np.ones(nI)], np.full(nI, -np.inf), np.zeros(nI))
     cov = (T <= T_SVC)
     reach = cov.any(0)
-    if not statusquo:
+    if fixed_new is not None:   # 개설이 고정되면 y 커버는 결과로만 보고, 냉장 커버는 닿는 동에만 건다
+        opn = E | F.cand_id.isin(list(fixed_new)).values
+        reach = cov[opn].any(0)
+        cj, ci = sp.csr_matrix((cov & opn[:, None]).T[reach].astype(float)).nonzero()
+        nr = int(reach.sum())
+        add(cj, oz + ci, np.ones(len(ci)), np.ones(nr), np.full(nr, np.inf))
+    elif not statusquo:
         cj, ci = sp.csr_matrix(cov.T[reach].astype(float)).nonzero()
         nr = int(reach.sum())
         add(cj, oy + ci, np.ones(len(ci)), np.ones(nr), np.full(nr, np.inf))
@@ -171,22 +181,23 @@ def solve(F, statusquo=False, label=""):
     return out, sel[sel.open > 0]
 
 
-print("파라미터:", PARAMS)
-res, sels = {}, {}
-F0 = make_F([])
-res["현상유지(기존 27곳)"], _ = solve(F0, statusquo=True, label="현상유지")
-for k, types in SETS.items():
-    F = make_F(types)
-    res["%s: %s" % (k, "영업 주유소만" if k == "A" else "주유소 전체+공영주차장")], sels[k] = solve(F, label=k)
-S = pd.DataFrame(res)
-base = S.loc["총비용(억/년)", "현상유지(기존 27곳)"]
-S.loc["현상유지 대비 절감(억/년)"] = base - S.loc["총비용(억/년)"]
-S = S.round(2)
-print(S.to_string())
-S.to_csv(os.path.join(RES, "compare_A_C.csv"), encoding="utf-8-sig")
-cols = ["cand_id", "type", "name", "gu", "dong", "addr", "lon", "lat", "area_m2", "cap", "R", "g", "existing",
-        "cold_open", "load", "util"]
-for k, s in sels.items():
-    s[cols].sort_values(["existing", "type"], ascending=[False, True]).to_csv(
-        os.path.join(RES, "selected_%s.csv" % k), index=False, encoding="utf-8-sig")
-json.dump(PARAMS, open(os.path.join(RES, "params_final.json"), "w"), ensure_ascii=False, indent=1)
+if __name__ == "__main__":
+    print("파라미터:", PARAMS)
+    res, sels = {}, {}
+    F0 = make_F([])
+    res["현상유지(기존 27곳)"], _ = solve(F0, statusquo=True, label="현상유지")
+    for k, types in SETS.items():
+        F = make_F(types)
+        res["%s: %s" % (k, "영업 주유소만" if k == "A" else "주유소 전체+공영주차장")], sels[k] = solve(F, label=k)
+    S = pd.DataFrame(res)
+    base = S.loc["총비용(억/년)", "현상유지(기존 27곳)"]
+    S.loc["현상유지 대비 절감(억/년)"] = base - S.loc["총비용(억/년)"]
+    S = S.round(2)
+    print(S.to_string())
+    S.to_csv(os.path.join(RES, "compare_A_C.csv"), encoding="utf-8-sig")
+    cols = ["cand_id", "type", "name", "gu", "dong", "addr", "lon", "lat", "area_m2", "cap", "R", "g", "existing",
+            "cold_open", "load", "util"]
+    for k, s in sels.items():
+        s[cols].sort_values(["existing", "type"], ascending=[False, True]).to_csv(
+            os.path.join(RES, "selected_%s.csv" % k), index=False, encoding="utf-8-sig")
+    json.dump(PARAMS, open(os.path.join(RES, "params_final.json"), "w"), ensure_ascii=False, indent=1)
